@@ -203,6 +203,10 @@ from pandas.io.formats.format import (
 )
 from pandas.io.formats.printing import pprint_thing
 
+
+#Snowflake imports
+from snowflake.snowpark import Session
+
 if TYPE_CHECKING:
     from collections.abc import (
         Hashable,
@@ -262,6 +266,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         "_name",
         "_metadata",
         "_flags",
+        "_snowpark_fields"
     ]
     _internal_names_set: set[str] = set(_internal_names)
     _accessors: set[str] = set()
@@ -271,17 +276,41 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
     _mgr: Manager
     _attrs: dict[Hashable, Any]
     _typ: str
+    _snowflake_fields: dict[str, object]
 
     # ----------------------------------------------------------------------
     # Constructors
 
-    def __init__(self, data: Manager) -> None:
+    def __init__(self,
+                 data: Manager,
+                 snowflake_df: bool | bool = False,
+                 snowflake_conn_dict: dict | dict = {
+                     "account": "ELYMMTV-AB70171",
+                     "user": "JUSTINC",
+                     "password": "63HioPle09",
+                 },
+                 snowflake_table: str | None = None,
+                 snowflake_database: str | None = None,
+                 ) -> None:
         object.__setattr__(self, "_is_copy", None)
         object.__setattr__(self, "_mgr", data)
         object.__setattr__(self, "_item_cache", {})
         object.__setattr__(self, "_attrs", {})
         object.__setattr__(self, "_flags", Flags(self, allows_duplicate_labels=True))
+        object.__setattr__(self, "_snowflake_fields", {})
 
+        #initialize snowpark fields
+        if snowflake_df:
+            _snowflake_session = Session.builder.configs(snowflake_conn_dict).create()
+            _snowflake_session.use_database(snowflake_database)
+
+            self._snowflake_fields["_snowflake_session"] = _snowflake_session
+            self._snowflake_fields['_snowflake_df'] = True
+            self._snowflake_fields["_snowflake_materialized"] = False
+            self._snowflake_fields["_snowflake_table"] = snowflake_table
+            print("init sucessfully run")
+        else:
+            self._snowflake_fields["_snowflake_virtual"] = False
     @final
     @classmethod
     def _init_mgr(
@@ -6314,6 +6343,10 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         """
         # Note: obj.x will always call obj.__getattribute__('x') prior to
         # calling obj.__getattr__('x').
+
+        if name == "_snowflake_fields":
+            return object.__getattribute__( NDFrame(self), name)
+
         if (
             name not in self._internal_names_set
             and name not in self._metadata
@@ -6332,7 +6365,6 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         # first try regular attribute access via __getattribute__, so that
         # e.g. ``obj.x`` and ``obj.x = 4`` will always reference/modify
         # the same attribute.
-
         try:
             object.__getattribute__(self, name)
             return object.__setattr__(self, name, value)

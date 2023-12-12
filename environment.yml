@@ -11,6 +11,7 @@ dependencies:
   - cython=3.0.5
   - meson[ninja]=1.2.1
   - meson-python=0.13.1
+  - snowflake-connector-python=3.6.0
 
   # test dependencies
   - pytest>=7.3.2
@@ -121,3 +122,5 @@ dependencies:
       - sphinx-toggleprompt  # conda-forge version has stricter pins on jinja2
       - typing_extensions; python_version<"3.11"
       - tzdata>=2022.7
+
+

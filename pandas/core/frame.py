@@ -206,6 +206,17 @@ from pandas.io.formats.info import (
 )
 import pandas.plotting
 
+
+
+#snowpark releated imports
+from snowflake.snowpark import Session
+from snowflake.snowpark.types import LongType
+from snowflake.snowpark.functions import mean as sf_mean
+from snowflake.snowpark import DataFrame as sf_dataframe
+import snowflake
+
+
+
 if TYPE_CHECKING:
     import datetime
 
@@ -652,6 +663,15 @@ class DataFrame(NDFrame, OpsMixin):
     _hidden_attrs: frozenset[str] = NDFrame._hidden_attrs | frozenset([])
     _mgr: BlockManager | ArrayManager
 
+    """
+    #Snowflake fields
+    _snowflake_virtual : bool
+    _snowflake_materialized : bool
+    _snowflake_table : str
+    _snowflake_session: snowflake.snowpark.Session
+    """
+
+
     # similar to __array_priority__, positions DataFrame before Series, Index,
     #  and ExtensionArray.  Should NOT be overridden by subclasses.
     __pandas_priority__ = 4000
@@ -691,7 +711,31 @@ class DataFrame(NDFrame, OpsMixin):
         columns: Axes | None = None,
         dtype: Dtype | None = None,
         copy: bool | None = None,
+        snowflake_df : bool | bool = False,
+        snowflake_conn_dict: dict | dict =  {
+                                    "account": "ELYMMTV-AB70171",
+                                    "user": "JUSTINC",
+                                     "password": "63HioPle09",
+        },
+        snowflake_table: str | None = None,
+        snowflake_database:  str | None = None,
     ) -> None:
+
+        """
+        #Snowflake initialization
+        if snowflake_df:
+            _snowflake_session = Session.builder.configs(snowflake_conn_dict).create()
+            _snowflake_session.use_database(snowflake_database)
+
+            self._snowflake_fields["_snowflake_session"] = _snowflake_session
+            self._snowflake_fields['_snowflake_df'] = True
+            self._snowflake_fields["_snowflake_materialized"] = False
+            self._snowflake_fields["_snowflake_table"] = snowflake_table
+            print("init sucessfully run")
+        else:
+            self._snowflake_fields["_snowflake_virtual"] = False
+        """
+
         allow_mgr = False
         if dtype is not None:
             dtype = self._validate_dtype(dtype)
@@ -910,7 +954,7 @@ class DataFrame(NDFrame, OpsMixin):
         # ensure correct Manager type according to settings
         mgr = mgr_to_mgr(mgr, typ=manager)
 
-        NDFrame.__init__(self, mgr)
+        NDFrame.__init__(self, mgr, snowflake_df, snowflake_conn_dict, snowflake_table, snowflake_database)
 
     # ----------------------------------------------------------------------
 
@@ -11603,6 +11647,31 @@ class DataFrame(NDFrame, OpsMixin):
         numeric_only: bool = False,
         **kwargs,
     ):
+        if self._snowflake_fields['_snowflake_df'] and not self._snowflake_fields['_snowflake_materialized']:
+            snowpark_dataframe = self._snowflake_fields['_snowflake_session'].table(self._snowflake_fields['_snowflake_table'])
+            sn_df_schema = snowpark_dataframe.schema
+            col_names = []
+            curr_col = 0
+            for col in sn_df_schema:
+
+                if isinstance(col.datatype,LongType):
+                    col_names.append(col.name)
+            sn_command_str = "snowpark_dataframe.select("
+            has_added = False
+
+            for col in col_names:
+                sn_command_str += "sf_mean(snowpark_dataframe[" +"'" + str(col) +"'" + "]),"
+                has_added = True
+            if has_added:
+                sn_command_str = sn_command_str[:-1]
+            sn_command_str += ")"
+
+            result_frame = eval(sn_command_str)
+
+            result_frame.show()
+            return snowpark_dataframe.to_pandas()
+
+
         result = super().mean(axis, skipna, numeric_only, **kwargs)
         if isinstance(result, Series):
             result = result.__finalize__(self, method="mean")
